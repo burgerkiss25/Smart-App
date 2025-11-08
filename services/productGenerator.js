@@ -1,4 +1,4 @@
-import { generateText, getOpenAIKey } from "../api/openaiClient.js";
+import { generateText } from "../api/openaiClient.js";
 
 const DEFAULT_MODEL = "gpt-4o-mini";
 const DEFAULT_TEMPERATURE = 0.6;
@@ -49,7 +49,7 @@ function extractAttributes(value) {
   }, {});
 }
 
-function buildPrompt(productData) {
+function buildPrompt(productData = {}) {
   const {
     name = "",
     category = "",
@@ -57,22 +57,37 @@ function buildPrompt(productData) {
     audience = "",
     tone = "neutral",
     language = "de"
-  } = productData || {};
+  } = productData;
 
+  const safeName = String(name || "Produkt").trim();
+  const safeCategory = String(category || "").trim();
+  const safeAudience = String(audience || "").trim();
+  const safeTone = ["neutral", "friendly", "professional"].includes(tone)
+    ? tone
+    : "neutral";
+  const safeLanguage = ["de", "en", "fr"].includes(language) ? language : "de";
   const specsList = normalizeList(shortSpecs);
 
-  const instructions = `Du bist ein professioneller Texter, der hochwertige Produktbeschreibungen erstellt. Schreibe alle Inhalte in ${language} und verwende einen ${tone} Ton. Liefere die Antwort ausschließlich als valides JSON-Objekt mit folgendem Schema:\n{\n  "title": string,\n  "description": string,\n  "bullets": string[],\n  "seo": { "title": string, "description": string },\n  "tags": string[],\n  "attributes": Record<string,string>\n}`;
+  const header = [
+    "You are an expert product copywriter.",
+    `Write the response in ${safeLanguage} using a ${safeTone} tone.`,
+    "Return a valid JSON object with the exact keys: title, description, bullets, seo, tags, attributes.",
+    "The seo field must contain title and description. The bullets field must be an array of short marketing highlights.",
+    "Use the provided product information to craft compelling marketing copy."
+  ].join("\n");
 
-  const contextSections = [
-    `Produktname: ${name}`,
-    `Kategorie: ${category}`,
-    audience ? `Zielgruppe: ${audience}` : null,
-    specsList.length ? `Wichtige Spezifikationen:\n- ${specsList.join("\n- ")}` : null
-  ].filter(Boolean);
-
-  return [instructions, "Nutze die folgenden Produktinformationen:", ...contextSections, "Achte auf Klarheit, Mehrwert und SEO."]
+  const context = [
+    `name: ${safeName}`,
+    safeCategory ? `category: ${safeCategory}` : null,
+    safeAudience ? `audience: ${safeAudience}` : null,
+    specsList.length
+      ? `shortSpecs:\n- ${specsList.join("\n- ")}`
+      : null
+  ]
     .filter(Boolean)
-    .join("\n\n");
+    .join("\n");
+
+  return `${header}\n\nProduct Data:\n${context}\n\nRespond only with JSON.`;
 }
 
 function createMockProductCopy(productData = {}) {
@@ -156,11 +171,11 @@ function ensureStructure(result = {}, fallback = {}) {
   };
 }
 
-function parseModelResponse(rawText) {
-  if (typeof rawText !== "string") return null;
+function parseModelResponse(rawText, fallback) {
+  if (typeof rawText !== "string") return fallback;
 
   const trimmed = rawText.trim();
-  if (!trimmed) return null;
+  if (!trimmed) return fallback;
 
   try {
     return JSON.parse(trimmed);
@@ -170,27 +185,37 @@ function parseModelResponse(rawText) {
       try {
         return JSON.parse(match[0]);
       } catch (_) {
-        return null;
+        /* ignore */
       }
     }
-    return null;
+
+    const lines = trimmed
+      .split(/\r?\n+/)
+      .map((line) => line.replace(/^[-*•]\s*/, "").trim())
+      .filter(Boolean);
+
+    const description = lines.join(" ").trim();
+    const bullets = lines.length > 1 ? lines.slice(1) : [];
+
+    return {
+      title: fallback.title,
+      description: description || fallback.description,
+      bullets: bullets.length ? bullets : fallback.bullets,
+      seo: fallback.seo,
+      tags: fallback.tags,
+      attributes: fallback.attributes
+    };
   }
 }
 
 export async function generateProductCopy(productData, opts = {}) {
   const fallback = createMockProductCopy(productData);
-  const hasRealClient = Boolean(getOpenAIKey());
-
-  if (!hasRealClient) {
-    return fallback;
-  }
-
   const prompt = buildPrompt(productData);
   const { model = DEFAULT_MODEL, temperature = DEFAULT_TEMPERATURE } = opts;
 
   try {
-    const response = await generateText(prompt, { model, temperature });
-    const parsed = parseModelResponse(response?.text);
+    const { text } = await generateText(prompt, { model, temperature });
+    const parsed = parseModelResponse(text, fallback);
     return ensureStructure(parsed, fallback);
   } catch (error) {
     console.error("generateProductCopy failed", error);
