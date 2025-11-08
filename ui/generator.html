@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Product Generator Test</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 2rem;
+      max-width: 720px;
+    }
+
+    form {
+      display: grid;
+      gap: 1rem;
+    }
+
+    label {
+      display: flex;
+      flex-direction: column;
+      font-weight: 600;
+      gap: 0.5rem;
+    }
+
+    input,
+    select,
+    textarea,
+    button {
+      font: inherit;
+      padding: 0.5rem;
+    }
+
+    button {
+      cursor: pointer;
+      width: fit-content;
+    }
+
+    pre {
+      background: #f5f5f5;
+      border: 1px solid #ddd;
+      padding: 1rem;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+  </style>
+</head>
+<body>
+  <h1>Product Generator Test</h1>
+  <form id="generator-form">
+    <label>
+      Product Name
+      <input type="text" name="productName" id="productName" required />
+    </label>
+
+    <label>
+      Category
+      <select name="category" id="category" required>
+        <option value="generator">Generator</option>
+        <option value="solar_panel">Solar Panel</option>
+        <option value="phone_case">Phone Case</option>
+        <option value="misc">Misc</option>
+      </select>
+    </label>
+
+    <label>
+      Short Specs
+      <textarea name="shortSpecs" id="shortSpecs" rows="4"></textarea>
+    </label>
+
+    <label>
+      Audience
+      <input type="text" name="audience" id="audience" />
+    </label>
+
+    <label>
+      Tone
+      <select name="tone" id="tone" required>
+        <option value="neutral">Neutral</option>
+        <option value="friendly">Friendly</option>
+        <option value="professional">Professional</option>
+      </select>
+    </label>
+
+    <label>
+      Language
+      <select name="language" id="language" required>
+        <option value="en">English</option>
+        <option value="de">Deutsch</option>
+        <option value="fr">Français</option>
+      </select>
+    </label>
+
+    <button type="submit">Generate</button>
+  </form>
+
+  <h2>Result</h2>
+  <pre id="result"></pre>
+
+  <script type="module" src="../src/js/generator.js"></script>
+</body>
+</html>
