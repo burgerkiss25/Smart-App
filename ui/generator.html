@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Product Generator Test</title>
+  <style>
+    :root { --fg:#111; --muted:#666; --border:#e6e6e6; --bg:#fff; --accent:#0a7; }
+    * { box-sizing: border-box; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    body { margin: 24px; color: var(--fg); background: var(--bg); }
+    h1 { margin: 0 0 20px; }
+    label { display:block; font-weight:600; margin:16px 0 6px; }
+    input[type="text"], select, textarea {
+      width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:6px; font-size:15px;
+    }
+    textarea { min-height:110px; resize:vertical; }
+    button {
+      margin-top:18px; padding:10px 14px; font-weight:600; border:1px solid var(--accent);
+      background: var(--accent); color:#fff; border-radius:8px; cursor:pointer;
+    }
+    button:disabled { opacity:.6; cursor:not-allowed; }
+    .row { max-width:760px; }
+    .muted { color: var(--muted); font-size:13px; }
+    pre#out {
+      margin-top:16px; padding:12px; border:1px solid var(--border); border-radius:8px;
+      background:#fafafa; white-space:pre-wrap; overflow:auto;
+      max-width: 100%; max-height: 60vh;
+    }
+  </style>
+</head>
+<body>
+  <div class="row">
+    <h1>Product Generator Test</h1>
+
+    <label for="name">Product Name</label>
+    <input id="name" type="text" placeholder="e.g. iPhone 16 (blue, 128 GB)" />
+
+    <label for="category">Category</label>
+    <!-- Freitext + Vorschlagsliste (AliExpress-ähnlich, beliebig erweiterbar) -->
+    <input id="category" list="category-list" type="text" placeholder="type or pick… e.g. phone-cases" value="Generator" />
+    <datalist id="category-list">
+      <option value="Generator"></option>
+      <option value="Solar Panels"></option>
+      <option value="Phone Cases"></option>
+      <option value="Smartphones"></option>
+      <option value="Power Banks"></option>
+      <option value="Headphones"></option>
+      <option value="Home Appliances"></option>
+      <option value="LED Lighting"></option>
+      <option value="Tools"></option>
+      <option value="Fashion Accessories"></option>
+      <!-- du kannst hier jederzeit weitere Optionen hinzufügen -->
+    </datalist>
+
+    <label for="shortSpecs">Short Specs</label>
+    <textarea id="shortSpecs" placeholder="key facts, comma or line separated (e.g. color: blue; storage: 128 GB; size: 6.3&quot;; material: TPU)"></textarea>
+    <div class="muted">Tipp: kurze Stichpunkte helfen der KI, korrekte Attribute zu erzeugen.</div>
+
+    <label for="audience">Audience</label>
+    <input id="audience" type="text" placeholder="e.g. students, professionals, DIY, general" />
+
+    <label for="tone">Tone</label>
+    <select id="tone">
+      <option value="neutral" selected>Neutral</option>
+      <option value="friendly">Friendly</option>
+      <option value="professional">Professional</option>
+      <option value="enthusiastic">Enthusiastic</option>
+      <option value="luxury">Luxury</option>
+    </select>
+
+    <label for="language">Language</label>
+    <select id="language">
+      <option value="en" selected>English</option>
+      <option value="de">Deutsch</option>
+      <option value="fr">Français</option>
+      <option value="es">Español</option>
+      <option value="it">Italiano</option>
+    </select>
+
+    <button id="run">Generate</button>
+
+    <h2 style="margin-top:28px;">Result</h2>
+    <pre id="out"></pre>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    // Kleines Hilfs-Utility: Text → Attribut-Objekt (aus "key: value" Paaren)
+    function parseAttributes(specText) {
+      const obj = {};
+      if (!specText) return obj;
+      // split by Zeile oder Semikolon
+      const parts = specText.split(/\n|;/).map(s => s.trim()).filter(Boolean);
+      for (const p of parts) {
+        const m = p.split(':');
+        if (m.length >= 2) {
+          const key = m.shift().trim().toLowerCase();
+          const val = m.join(':').trim();
+          if (key) obj[key] = val;
+        }
+      }
+      return obj;
+    }
+
+    $('run')?.addEventListener('click', async () => {
+      const product = {
+        name: $('name')?.value?.trim(),
+        category: $('category')?.value?.trim(),
+        shortSpecs: $('shortSpecs')?.value?.trim(),
+        audience: $('audience')?.value?.trim() || 'general',
+        tone: $('tone')?.value || 'neutral',
+        language: $('language')?.value || 'en'
+      };
+
+      const baseAttributes = parseAttributes(product.shortSpecs);
+
+      const prompt = `
+You are a senior e-commerce SEO copywriter.
+OUTPUT STRICTLY AS JSON ONLY. No prose outside JSON.
+
+INPUT
+- name: ${product.name}
+- category: ${product.category}
+- audience: ${product.audience}
+- language: ${product.language}
+- tone: ${product.tone}
+- shortSpecs: ${product.shortSpecs}
+
+GOALS
+- Produce unique, conversion-oriented product copy for WooCommerce.
+- Follow Neil Patel style SEO best practices: primary keyword early, scannable, benefits first.
+- No fake specs; if unknown, keep generic.
+
+CONSTRAINTS
+- Language: ${product.language}
+- Tone: ${product.tone}
+- Title ≤ 70 chars; SEO title ≤ 60; SEO description ≤ 150.
+- 3–6 bullets; each ≤ 110 chars.
+- tags: 5–10 lowercase keywords (no brand spam).
+
+RETURN JSON:
+{
+  "title": "",
+  "short_description": "",
+  "description": "",
+  "bullets": [],
+  "seo": { "title": "", "description": "" },
+  "tags": [],
+  "attributes": {},
+  "slug": "",
+  "image_alt": ""
+}
+`.trim();
+
+      const out = $('out');
+      out.textContent = 'Generating…';
+
+      try {
+        const rsp = await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt,
+            options: { model: 'gpt-4o-mini', temperature: 0.6 }
+          })
+        });
+        if (!rsp.ok) throw new Error('HTTP ' + rsp.status);
+        const data = await rsp.json();
+
+        const text = data?.text ?? '';
+        // robustes JSON-Parsing – nimm äußerste Klammern
+        const first = text.indexOf('{');
+        const last  = text.lastIndexOf('}');
+        const slice = (first >= 0 && last > first) ? text.slice(first, last + 1) : text;
+
+        let obj;
+        try { obj = JSON.parse(slice); } catch { obj = { raw: text }; }
+
+        // Attribute aus ShortSpecs mit KI-Attributes mergen (KI gewinnt nicht; echte Specs bevorzugt)
+        if (obj && obj.attributes && typeof obj.attributes === 'object') {
+          obj.attributes = { ...obj.attributes, ...baseAttributes, ...obj.attributes };
+        } else {
+          obj.attributes = { ...baseAttributes };
+        }
+
+        // Fallbacks
+        obj.title = obj.title || (product.name || 'Product');
+        obj.seo = obj.seo || {};
+        obj.seo.title = obj.seo.title || obj.title;
+        obj.seo.description = obj.seo.description || (obj.short_description || '');
+        obj.slug = (obj.slug || obj.title)
+          .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        obj.image_alt = obj.image_alt || obj.title;
+
+        out.textContent = JSON.stringify(obj, null, 2);
+      } catch (err) {
+        out.textContent = 'Fehler: ' + (err?.message || err);
+      }
+    });
+  </script>
+</body>
+</html>
