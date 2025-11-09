@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mixed Product Generator</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 920px; margin: 24px auto; padding: 0 16px; }
+    fieldset { border: 1px solid #ddd; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; }
+    label { display:block; font-weight:600; margin: 8px 0 4px; }
+    input, textarea, select { width:100%; padding:8px; border:1px solid #ccc; border-radius:6px; }
+    button { padding:10px 16px; border:0; border-radius:8px; cursor:pointer; }
+    .row { display:grid; gap:12px; grid-template-columns: 1fr 1fr; }
+    pre { background:#f6f6f6; padding:12px; border-radius:8px; overflow:auto; }
+  </style>
+</head>
+<body>
+  <h1>Mixed Product Copy Generator</h1>
+
+  <fieldset>
+    <legend>Produktdaten</legend>
+    <label>Name</label>
+    <input id="name" placeholder="z.B. DG3500SE – 3 kW Inverter" />
+
+    <div class="row">
+      <div>
+        <label>Kategorie</label>
+        <input id="category" placeholder="generator | solarpanel | phone case ..." />
+      </div>
+      <div>
+        <label>Zielgruppe</label>
+        <input id="audience" placeholder="general | prosumer | installer ..." />
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>Sprache</label>
+        <select id="language">
+          <option value="de">Deutsch</option>
+          <option value="en">English</option>
+          <option value="fr">Français</option>
+        </select>
+      </div>
+      <div>
+        <label>Tonalität</label>
+        <select id="tone">
+          <option value="neutral">neutral</option>
+          <option value="friendly">friendly</option>
+          <option value="professional">professional</option>
+        </select>
+      </div>
+    </div>
+
+    <label>Kurz-Spezifikation</label>
+    <textarea id="shortSpecs" rows="4" placeholder="Leistung, Kapazität, Materialien, Besonderheiten ..."></textarea>
+  </fieldset>
+
+  <button id="run">Generate</button>
+
+  <h2>Ergebnis</h2>
+  <pre id="out">Noch kein Ergebnis…</pre>
+
+  <script type="module">
+    import { generateProductCopy } from '../services/productGenerator.js';
+
+    const $ = (id) => document.getElementById(id);
+    document.getElementById('run').addEventListener('click', async () => {
+      const product = {
+        name: $('name').value.trim(),
+        category: $('category').value.trim(),
+        audience: $('audience').value.trim() || 'general',
+        language: $('language').value,
+        tone: $('tone').value,
+        shortSpecs: $('shortSpecs').value.trim()
+      };
+      try {
+        const data = await generateProductCopy(product, { model: 'gpt-4o-mini', temperature: 0.6 });
+        document.getElementById('out').textContent = JSON.stringify(data, null, 2);
+      } catch (e) {
+        document.getElementById('out').textContent = 'Fehler: ' + e.message;
+      }
+    });
+  </script>
+</body>
+</html>

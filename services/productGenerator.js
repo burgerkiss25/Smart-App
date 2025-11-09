@@ -1,224 +1,99 @@
-import { generateText } from "../api/openaiClient.js";
-
-const DEFAULT_MODEL = "gpt-4o-mini";
-const DEFAULT_TEMPERATURE = 0.6;
-
-function normalizeList(value) {
-  if (!value) return [];
-  if (Array.isArray(value)) {
-    return value
-      .map((item) => (typeof item === "string" ? item.trim() : String(item)))
-      .filter(Boolean);
-  }
-  if (typeof value === "string") {
-    return value
-      .split(/\r?\n|[,;]+/)
-      .map((item) => item.trim())
-      .filter(Boolean);
-  }
-  if (typeof value === "object") {
-    return Object.entries(value)
-      .map(([key, val]) => `${key}: ${val}`)
-      .filter(Boolean);
-  }
-  return [String(value)];
-}
-
-function extractAttributes(value) {
-  if (!value) return {};
-  if (typeof value === "object" && !Array.isArray(value)) {
-    return Object.fromEntries(
-      Object.entries(value)
-        .filter(([_, val]) => val !== undefined && val !== null)
-        .map(([key, val]) => [String(key), String(val)])
-    );
-  }
-
-  const list = normalizeList(value);
-  return list.reduce((acc, item) => {
-    const [key, ...rest] = item.split(":");
-    if (!key || rest.length === 0) {
-      return acc;
-    }
-    const attributeKey = key.trim();
-    const attributeValue = rest.join(":").trim();
-    if (attributeKey && attributeValue) {
-      acc[attributeKey] = attributeValue;
-    }
-    return acc;
-  }, {});
-}
-
-function buildPrompt(productData = {}) {
+export function buildMixedProductPrompt(product) {
   const {
-    name = "",
-    category = "",
+    name,
+    category,
     shortSpecs,
-    audience = "",
-    tone = "neutral",
-    language = "de"
-  } = productData;
+    audience = "general",
+    language = "de",
+    tone = "neutral"
+  } = product;
 
-  const safeName = String(name || "Produkt").trim();
-  const safeCategory = String(category || "").trim();
-  const safeAudience = String(audience || "").trim();
-  const safeTone = ["neutral", "friendly", "professional"].includes(tone)
-    ? tone
-    : "neutral";
-  const safeLanguage = ["de", "en", "fr"].includes(language) ? language : "de";
-  const specsList = normalizeList(shortSpecs);
+  const categoriesHint = [
+    "generator", "genset", "inverter",
+    "solarpanel", "pv module", "controller",
+    "phone case", "mobile accessory",
+    "appliance", "tool", "accessory"
+  ].join(", ");
 
-  const header = [
-    "You are an expert product copywriter.",
-    `Write the response in ${safeLanguage} using a ${safeTone} tone.`,
-    "Return a valid JSON object with the exact keys: title, description, bullets, seo, tags, attributes.",
-    "The seo field must contain title and description. The bullets field must be an array of short marketing highlights.",
-    "Use the provided product information to craft compelling marketing copy."
-  ].join("\n");
+  return `
+You are a senior e-commerce copywriter. Write concise, conversion-oriented copy.
+OUTPUT STRICTLY AS JSON ONLY. No prose outside JSON.
 
-  const context = [
-    `name: ${safeName}`,
-    safeCategory ? `category: ${safeCategory}` : null,
-    safeAudience ? `audience: ${safeAudience}` : null,
-    specsList.length
-      ? `shortSpecs:\n- ${specsList.join("\n- ")}`
-      : null
-  ]
-    .filter(Boolean)
-    .join("\n");
+Product:
+- name: ${name}
+- category: ${category ?? "unknown"}
+- audience: ${audience}
+- language: ${language}
+- tone: ${tone}
+- shortSpecs: ${shortSpecs ?? "-"}
 
-  return `${header}\n\nProduct Data:\n${context}\n\nRespond only with JSON.`;
+Rules:
+- Target language: ${language} (no mixing).
+- Tone: ${tone} (consistent).
+- Keep title ≤ 70 chars, seo.title ≤ 60, seo.description ≤ 150.
+- 3–6 bullet points, each ≤ 110 chars.
+- tags: 5–10 short keywords, lowercase.
+- attributes: key/value pairs inferred from shortSpecs; avoid empty values.
+- If category matches any of [${categoriesHint}] adapt wording (e.g. power, capacity, materials).
+- Do not invent technical data you do not see – infer cautiously (e.g. "robust housing", "lightweight").
+- Never include pricing, shipping, or warranty promises.
+
+Return JSON with this exact schema:
+{
+  "title": "string",
+  "description": "string",
+  "bullets": ["string", "..."],
+  "seo": { "title": "string", "description": "string" },
+  "tags": ["string", "..."],
+  "attributes": { "key": "value", "...": "..." }
 }
 
-function createMockProductCopy(productData = {}) {
-  const {
-    name = "Beispielprodukt",
-    category = "Produkt",
-    shortSpecs,
-    audience = "Kund:innen",
-    tone = "inspirierenden",
-    language = "de"
-  } = productData;
-
-  const specsList = normalizeList(shortSpecs);
-  const attributes = extractAttributes(shortSpecs);
-
-  const bullets = specsList.length
-    ? specsList
-    : [
-        "Hochwertige Verarbeitung für langanhaltende Freude",
-        "Durchdachtes Design für den Alltag",
-        "Perfekt auf die Bedürfnisse der Zielgruppe abgestimmt"
-      ];
-
-  return {
-    title: `${name} – ${category}`.trim(),
-    description:
-      language === "de"
-        ? `${name} überzeugt durch ${bullets[0]?.toLowerCase() || "seine vielseitigen Eigenschaften"}. Ideal für ${audience.toLowerCase()} in jeder Situation.`
-        : `${name} stands out with ${bullets[0]?.toLowerCase() || "its versatile features"}. Perfect for ${audience.toLowerCase()} in every situation.`,
-    bullets,
-    seo: {
-      title:
-        language === "de"
-          ? `${name} kaufen | ${category}`
-          : `Buy ${name} | ${category}`,
-      description:
-        language === "de"
-          ? `${name} – jetzt entdecken und von ${bullets[0]?.toLowerCase() || "vielseitigen Vorteilen"} profitieren.`
-          : `${name} – discover it now and enjoy ${bullets[0]?.toLowerCase() || "versatile benefits"}.`
-    },
-    tags: [name, category, tone, audience].filter(Boolean).map(String),
-    attributes
-  };
+Now produce the JSON only.
+`.trim();
 }
 
-function ensureStructure(result = {}, fallback = {}) {
-  const safeResult = typeof result === "object" && result !== null ? result : {};
+export async function generateProductCopy(product, options = {}) {
+  const prompt = buildMixedProductPrompt(product);
 
-  return {
-    title: typeof safeResult.title === "string" && safeResult.title.trim().length
-      ? safeResult.title.trim()
-      : fallback.title || "",
-    description: typeof safeResult.description === "string" && safeResult.description.trim().length
-      ? safeResult.description.trim()
-      : fallback.description || "",
-    bullets: Array.isArray(safeResult.bullets)
-      ? safeResult.bullets.map((item) => String(item).trim()).filter(Boolean)
-      : fallback.bullets || [],
-    seo: {
-      title:
-        safeResult.seo && typeof safeResult.seo.title === "string"
-          ? safeResult.seo.title.trim()
-          : fallback.seo?.title || "",
-      description:
-        safeResult.seo && typeof safeResult.seo.description === "string"
-          ? safeResult.seo.description.trim()
-          : fallback.seo?.description || ""
-    },
-    tags: Array.isArray(safeResult.tags)
-      ? safeResult.tags.map((item) => String(item).trim()).filter(Boolean)
-      : fallback.tags || [],
-    attributes:
-      safeResult.attributes && typeof safeResult.attributes === "object"
-        ? Object.fromEntries(
-            Object.entries(safeResult.attributes).map(([key, value]) => [
-              String(key),
-              String(value)
-            ])
-          )
-        : fallback.attributes || {}
-  };
-}
+  // Call our server endpoint via browser-safe client
+  const rsp = await fetch('/api/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt, options })
+  });
+  if (!rsp.ok) throw new Error('Generation failed');
+  const { text } = await rsp.json();
 
-function parseModelResponse(rawText, fallback) {
-  if (typeof rawText !== "string") return fallback;
-
-  const trimmed = rawText.trim();
-  if (!trimmed) return fallback;
-
+  // Try strict JSON parse, then tolerant fallback
   try {
-    return JSON.parse(trimmed);
-  } catch (error) {
-    const match = trimmed.match(/\{[\s\S]*\}/);
-    if (match) {
-      try {
-        return JSON.parse(match[0]);
-      } catch (_) {
-        /* ignore */
-      }
-    }
+    const firstBrace = text.indexOf('{');
+    const lastBrace  = text.lastIndexOf('}');
+    const jsonSlice  = firstBrace >= 0 && lastBrace > firstBrace
+      ? text.slice(firstBrace, lastBrace + 1)
+      : text;
+    const data = JSON.parse(jsonSlice);
 
-    const lines = trimmed
-      .split(/\r?\n+/)
-      .map((line) => line.replace(/^[-*•]\s*/, "").trim())
-      .filter(Boolean);
-
-    const description = lines.join(" ").trim();
-    const bullets = lines.length > 1 ? lines.slice(1) : [];
-
+    // Normalize minimal shape
     return {
-      title: fallback.title,
-      description: description || fallback.description,
-      bullets: bullets.length ? bullets : fallback.bullets,
-      seo: fallback.seo,
-      tags: fallback.tags,
-      attributes: fallback.attributes
+      title: data.title ?? product.name ?? "Product",
+      description: data.description ?? "",
+      bullets: Array.isArray(data.bullets) ? data.bullets : [],
+      seo: {
+        title: data?.seo?.title ?? (data.title ?? product.name ?? "Product"),
+        description: data?.seo?.description ?? ""
+      },
+      tags: Array.isArray(data.tags) ? data.tags : [],
+      attributes: typeof data.attributes === 'object' && data.attributes ? data.attributes : {}
     };
-  }
-}
-
-export async function generateProductCopy(productData, opts = {}) {
-  const fallback = createMockProductCopy(productData);
-  const prompt = buildPrompt(productData);
-  const { model = DEFAULT_MODEL, temperature = DEFAULT_TEMPERATURE } = opts;
-
-  try {
-    const { text } = await generateText(prompt, { model, temperature });
-    const parsed = parseModelResponse(text, fallback);
-    return ensureStructure(parsed, fallback);
-  } catch (error) {
-    console.error("generateProductCopy failed", error);
-    return fallback;
+  } catch {
+    // Fallback if model returned plain text
+    return {
+      title: product.name ?? "Product",
+      description: text,
+      bullets: [],
+      seo: { title: product.name ?? "Product", description: text.slice(0, 150) },
+      tags: [],
+      attributes: {}
+    };
   }
 }
