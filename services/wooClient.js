@@ -89,6 +89,19 @@ export function createWooClient({
       });
     }
 
+    // 🔴 NEU: Bilder normalisieren
+    const images = [];
+    if (Array.isArray(p.images)) {
+      for (const img of p.images) {
+        if (!img) continue;
+        if (typeof img === 'string') {
+          images.push({ src: img });
+        } else if (typeof img === 'object' && img.src) {
+          images.push({ src: img.src });
+        }
+      }
+    }
+
     const product = {
       name,
       type: p.variants && p.variants.length ? 'variable' : 'simple',
@@ -108,6 +121,11 @@ export function createWooClient({
           : []),
       ],
     };
+
+    // 🔴 NEU: nur setzen, wenn wir auch wirklich Bilder haben
+    if (images.length) {
+      product.images = images;
+    }
 
     const variations = [];
     if (Array.isArray(p.variants) && p.variants.length) {
