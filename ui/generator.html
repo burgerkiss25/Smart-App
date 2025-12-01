@@ -30,6 +30,13 @@
   <div class="wrap">
     <h1>Product Generator Test <span class="badge">v1 UI</span></h1>
 
+    <!-- URL-Eingabefeld -->
+    <div class="field">
+      <label for="productUrl">Product URL (AliExpress, etc.)</label>
+      <input id="productUrl" placeholder="https://www.aliexpress.com/item/..." />
+      <div class="subtle">Tipp: URL einfügen und unten auf „Import from URL“ klicken.</div>
+    </div>
+
     <div class="field">
       <label for="name">Product Name</label>
       <input id="name" placeholder="iphone 16"/>
@@ -81,27 +88,37 @@
     <div class="toolbar">
       <button id="apply" class="btn" style="background:#333;max-width:220px">Apply URL params</button>
       <button id="clear" class="btn" style="background:#666;max-width:120px">Clear</button>
+      <button id="importUrl" class="btn" style="background:#444;max-width:230px">Import from URL</button>
     </div>
 
     <div class="out">
       <h3>Result</h3>
       <div id="json" class="code mono">JSON output…</div>
       <div class="toolbar">
-      <button id="copy" class="btn" style="background:#2b4;max-width:160px">Copy JSON</button>
-      <button id="download" class="btn" style="background:#06c;max-width:180px">Download JSON</button>
-      <button id="sendToWoo" class="btn" style="background:#111;max-width:220px">Send to WooCommerce (local)</button>
-    </div>
+        <button id="copy" class="btn" style="background:#2b4;max-width:160px">Copy JSON</button>
+        <button id="download" class="btn" style="background:#06c;max-width:180px">Download JSON</button>
+        <button id="sendToWoo" class="btn" style="background:#111;max-width:220px">Send to WooCommerce (local)</button>
+      </div>
       <div id="err" class="err mono"></div>
     </div>
   </div>
 
   <script>
     const $ = sel => document.querySelector(sel);
-    const nameEl = $('#name'), catEl = $('#category'), specsEl = $('#specs');
-    const audEl  = $('#audience'), toneEl = $('#tone'), langEl = $('#lang');
-    const out = $('#json'), errBox = $('#err');
 
+    const nameEl  = $('#name');
+    const catEl   = $('#category');
+    const specsEl = $('#specs');
+    const audEl   = $('#audience');
+    const toneEl  = $('#tone');
+    const langEl  = $('#lang');
+    const out     = $('#json');
+    const errBox  = $('#err');
+    const urlEl   = $('#productUrl');
+
+    // -------------------------------
     // Prefill from URL
+    // -------------------------------
     (function prefill() {
       const p = new URLSearchParams(location.search);
       if (p.get('productName')) nameEl.value = decodeURIComponent(p.get('productName'));
@@ -112,6 +129,9 @@
       if (p.get('language'))    langEl.value = p.get('language');
     })();
 
+    // -------------------------------
+    // Apply URL params
+    // -------------------------------
     $('#apply')?.addEventListener('click', () => {
       const params = new URLSearchParams({
         productName: nameEl.value.trim(),
@@ -124,36 +144,124 @@
       history.replaceState(null, '', `${location.pathname}?${params.toString()}`);
     });
 
+    // -------------------------------
+    // Clear
+    // -------------------------------
     $('#clear')?.addEventListener('click', () => {
-      nameEl.value = ''; specsEl.value = ''; audEl.value = '';
-      out.textContent = 'JSON output…'; errBox.textContent = '';
+      nameEl.value = '';
+      specsEl.value = '';
+      audEl.value = '';
+      out.textContent = 'JSON output…';
+      errBox.textContent = '';
       history.replaceState(null, '', location.pathname);
     });
 
+    // -------------------------------
+    // Copy / Download
+    // -------------------------------
     $('#copy')?.addEventListener('click', async () => {
       try { await navigator.clipboard.writeText(out.textContent || ''); } catch {}
     });
 
     $('#download')?.addEventListener('click', () => {
       const blob = new Blob([out.textContent || ''], {type:'application/json'});
-      const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-      a.download = 'product.json'; a.click(); URL.revokeObjectURL(a.href);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'product.json';
+      a.click();
+      URL.revokeObjectURL(a.href);
     });
 
+    // -------------------------------
+    // Generate (OpenAI)
+    // -------------------------------
     $('#run')?.addEventListener('click', async () => {
       errBox.textContent = '';
       out.textContent = '…';
+
       const payload = {
         prompt: buildPrompt(),
         options: { temperature: 0.6, model: 'gpt-4o-mini' }
       };
 
-    // -----------------------------------------------
-    // SEND TO WOOCOMMERCE
-    // -----------------------------------------------
+      try {
+        const res = await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const text = await res.text();
+        let data = null;
+        try { data = JSON.parse(text); } catch { /* kein JSON */ }
+
+        if (!res.ok) {
+          const msg = (data && (data.error || data.message)) ? JSON.stringify(data) : text;
+          throw new Error(`HTTP ${res.status} – ${msg}`);
+        }
+
+        let outObj = null;
+        if (data && typeof data.text === 'string') {
+          try { outObj = JSON.parse(data.text); } catch { /* plain text */ }
+          out.textContent = outObj ? JSON.stringify(outObj, null, 2) : data.text;
+        } else {
+          out.textContent = JSON.stringify(data ?? { note: 'empty response' }, null, 2);
+        }
+      } catch (err) {
+        out.textContent = '';
+        errBox.textContent = 'Fehler: ' + (err?.message || err);
+      }
+    });
+
+    // -------------------------------
+    // Import from URL (AliExpress etc.)
+    // -------------------------------
+    $('#importUrl')?.addEventListener('click', async () => {
+      const url = (urlEl?.value || '').trim();
+      if (!url) {
+        errBox.textContent = 'Bitte zuerst eine Produkt-URL eingeben.';
+        return;
+      }
+
+      errBox.textContent = '';
+      out.textContent = 'Importing…';
+
+      try {
+        const res = await fetch('/api/import/url', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify({ url })
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || data.ok === false) {
+          throw new Error(data.error || 'Import fehlgeschlagen.');
+        }
+
+        if (data.productName) {
+          nameEl.value = data.productName;
+        }
+        if (data.shortSpecs) {
+          specsEl.value = data.shortSpecs;
+        }
+
+        out.textContent = JSON.stringify(data, null, 2);
+      } catch (e) {
+        out.textContent = '';
+        errBox.textContent = 'Import Fehler: ' + (e.message || e);
+      }
+    });
+
+    // -------------------------------
+    // Send to WooCommerce
+    // -------------------------------
     $('#sendToWoo')?.addEventListener('click', async () => {
       errBox.textContent = '';
-      
+
       let jsonText = out.textContent || '';
       if (!jsonText.trim() || jsonText === 'JSON output…') {
         errBox.textContent = 'Fehler: Kein JSON vorhanden.';
@@ -194,44 +302,15 @@
           return;
         }
 
-    out.textContent = JSON.stringify(data, null, 2);
-  } catch (err) {
-    errBox.textContent = 'Netzwerkfehler: ' + err.message;
-  }
-});
-
-
-      try {
-        const res = await fetch('/api/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-
-        const text = await res.text();            // <-- erst Text lesen
-        let data = null;
-        try { data = JSON.parse(text); }          // <-- dann JSON versuchen
-        catch { /* kein JSON */ }
-
-        if (!res.ok) {
-          const msg = (data && (data.error || data.message)) ? JSON.stringify(data) : text;
-          throw new Error(`HTTP ${res.status} – ${msg}`);
-        }
-
-        // Erwartetes Format: { text: "...json..." } oder direkt JSON
-        let outObj = null;
-        if (data && typeof data.text === 'string') {
-          try { outObj = JSON.parse(data.text); } catch { /* plain text */ }
-          out.textContent = outObj ? JSON.stringify(outObj, null, 2) : data.text;
-        } else {
-          out.textContent = JSON.stringify(data ?? {note:'empty response'}, null, 2);
-        }
+        out.textContent = JSON.stringify(data, null, 2);
       } catch (err) {
-        out.textContent = '';
-        errBox.textContent = 'Fehler: ' + (err?.message || err);
+        errBox.textContent = 'Netzwerkfehler: ' + err.message;
       }
     });
 
+    // -------------------------------
+    // Prompt Builder
+    // -------------------------------
     function buildPrompt() {
       const name = nameEl.value.trim();
       const cat  = catEl.value;

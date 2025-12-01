@@ -9,9 +9,10 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import { createWooClient } from '../services/wooClient.js';
+import { importFromUrl } from '../services/urlImporter.js';   // <-- URL-Importer
 
 // -----------------------------------------------------
-// STATIC PATH FIX (wichtig für generator.html, styles, etc.)
+// STATIC PATH FIX
 // -----------------------------------------------------
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,13 +22,12 @@ app.use(cors());
 app.use(express.json());
 
 // -----------------------------------------------------
-// STATIC UI FOLDER SERVEN
+// STATIC UI SERVEN
 // -----------------------------------------------------
-app.use(express.static(path.join(__dirname, "../ui")));
+app.use(express.static(path.join(__dirname, '../ui')));
 
-// Root → generator.html
 app.get('/', (_req, res) => {
-  res.sendFile(path.join(__dirname, "../ui/generator.html"));
+  res.sendFile(path.join(__dirname, '../ui/generator.html'));
 });
 
 // -----------------------------------------------------
@@ -48,7 +48,9 @@ app.get('/health', (_req, res) => {
 app.post('/api/generate', async (req, res) => {
   try {
     const { prompt, options } = req.body || {};
-    if (!prompt) return res.status(400).json({ error: 'prompt is required' });
+    if (!prompt) {
+      return res.status(400).json({ error: 'prompt is required' });
+    }
 
     const rsp = await client.responses.create({
       model: options?.model || 'gpt-4o-mini',
@@ -57,10 +59,36 @@ app.post('/api/generate', async (req, res) => {
     });
 
     const text = rsp.output_text;
-    res.json({ text, meta: { model: rsp.model, usage: rsp.usage } });
+    res.json({
+      text,
+      meta: { model: rsp.model, usage: rsp.usage }
+    });
   } catch (err) {
     console.error('[generate] error:', err);
     res.status(500).json({ error: 'generation_failed' });
+  }
+});
+
+// -----------------------------------------------------
+// URL IMPORT ENDPOINT (AliExpress etc.)
+// -----------------------------------------------------
+app.post('/api/import/url', async (req, res) => {
+  try {
+    const { url } = req.body || {};
+
+    if (!url || !/^https?:\/\//i.test(url)) {
+      return res.status(400).json({
+        ok: false,
+        error: 'invalid_url',
+        message: 'URL fehlt oder ist ungültig.',
+      });
+    }
+
+    const data = await importFromUrl(url);
+    return res.json(data);
+  } catch (err) {
+    console.error('[import/url] error:', err);
+    res.status(500).json({ ok: false, error: 'import_failed' });
   }
 });
 
@@ -75,10 +103,11 @@ app.post('/api/woo/upsert', async (req, res) => {
       return res.status(400).json({ error: 'missing_shop_credentials' });
     }
 
-    // Optional Ping Test
+    // optionaler Verbindungs-Test
     if (options?.ping === true) {
       const woo = createWooClient({ ...shop, dryRun: true });
-      return res.json(await woo.ping());
+      const result = await woo.ping();
+      return res.json(result);
     }
 
     if (!product?.title) {
@@ -87,12 +116,11 @@ app.post('/api/woo/upsert', async (req, res) => {
 
     const woo = createWooClient({
       ...shop,
-      dryRun: options?.dryRun !== false, // Default: TRUE → sichere Sandbox
+      dryRun: options?.dryRun !== false, // Default: TRUE (Sandbox)
     });
 
     const result = await woo.upsertProduct(product);
     return res.json(result);
-
   } catch (err) {
     console.error('[woo/upsert] error:', err?.response?.data || err);
     res.status(500).json({ error: 'woo_upsert_failed' });
@@ -100,7 +128,7 @@ app.post('/api/woo/upsert', async (req, res) => {
 });
 
 // -----------------------------------------------------
-// SERVER STARTEN
+// SERVER START
 // -----------------------------------------------------
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
